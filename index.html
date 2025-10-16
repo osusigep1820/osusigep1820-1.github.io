@@ -667,7 +667,20 @@
                 session: 'study',
                 isFlipped: false,
                 testCycleCount: 0,
-// ... existing code ... -->
+                missedInTest: [],
+                questionBank: [],
+                masteredBank: [],
+            };
+
+            // --- DOM ELEMENTS --- //
+            const DOMElements = {
+                flipCard: document.getElementById('flip-card'),
+                drugNameFront: document.getElementById('drug-name-front'),
+                drugNameBack: document.getElementById('drug-name-back'),
+                quizForm: document.getElementById('quiz-form'),
+                receptorsGroup: document.getElementById('receptors-group'),
+                indirectMechContainer: document.getElementById('indirect-mechanisms-container'),
+                submitBtn: document.getElementById('submit-btn'),
                 resetBtn: document.getElementById('reset-btn'),
                 backBtn: document.getElementById('back-btn'),
                 nextBtn: document.getElementById('next-btn'),
@@ -691,7 +704,38 @@
 
             // --- HELPER FUNCTIONS --- //
 
-// ... existing code ... -->
+            const shuffleArray = (array) => {
+                for (let i = array.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [array[i], array[j]] = [array[j], array[i]];
+                }
+            };
+
+            const calculateTilt = (drug) => {
+                if (drug.tiltOverride) return drug.tiltOverride;
+                if (drug.tone === 'sympathetic') {
+                    return drug.agonism === 'agonist' ? 'fight' : 'rest';
+                } else if (drug.tone === 'parasympathetic') {
+                    return drug.agonism === 'agonist' ? 'rest' : 'fight';
+                }
+                return 'variable'; // Default for ganglionic
+            };
+            
+            const arrayEquals = (a, b) => {
+                return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.sort().every((val, index) => val === b.sort()[index]);
+            }
+
+            const updateScoreboard = () => {
+                 const mastered = state.masteredBank.length;
+                 const remaining = state.questionBank.length;
+                 const total = masterDrugList.length;
+                 if(state.mode === 'review'){
+                    DOMElements.scoreboard.textContent = `${state.questionBank.length > 0 ? (total - remaining + 1) : total} / ${total}`;
+                 } else {
+                    DOMElements.scoreboard.textContent = `Mastered: ${mastered} | Remaining: ${remaining}`;
+                 }
+            };
+            
             const flipCard = () => {
                 state.isFlipped = !state.isFlipped;
                 DOMElements.flipCard.classList.toggle('is-flipped', state.isFlipped);
@@ -702,19 +746,71 @@
                 DOMElements.quizForm.classList.toggle('hidden', isReview);
                 DOMElements.reviewButtonGroup.classList.toggle('hidden', !isReview);
                 DOMElements.sessionGroup.classList.toggle('hidden', isReview);
+                 if(isReview) {
+                    DOMElements.backBtn.classList.add('hidden');
+                 } else {
+                    DOMElements.backBtn.classList.remove('hidden');
+                 }
             };
 
             // --- CORE LOGIC --- //
             
             const initializeQuiz = () => {
-// ... existing code ... -->
+                state.questionBank = [...masterDrugList];
+                shuffleArray(state.questionBank);
+                state.masteredBank = [];
                 state.testCycleCount = 0;
                 state.missedInTest = [];
                 loadNewCard();
             };
 
             const populateReceptors = () => {
-// ... existing code ... -->
+                DOMElements.receptorsGroup.innerHTML = '';
+                allReceptors.forEach(receptor => {
+                    const receptorId = `receptor-${receptor.replace('-','')}`;
+                    let html = `
+                        <div style="display: flex; flex-direction: column; align-items: center;">
+                           <input type="checkbox" id="${receptorId}" name="receptor" value="${receptor}" class="choice-input">
+                           <label for="${receptorId}" class="choice-label">${receptor}</label>
+                           <div id="details-${receptorId}" class="receptor-details hidden">
+                               <div class="toggle-switch">
+                                    <button data-value="direct" data-receptor="${receptor}" class="active">Direct</button>
+                                    <button data-value="indirect" data-receptor="${receptor}">Indirect</button>
+                               </div>
+                           </div>
+                        </div>`;
+                    DOMElements.receptorsGroup.insertAdjacentHTML('beforeend', html);
+                });
+
+                // Add event listeners for advanced mode toggles
+                 DOMElements.receptorsGroup.querySelectorAll('input[name="receptor"]').forEach(checkbox => {
+                    checkbox.addEventListener('change', () => {
+                        if (state.mode === 'advanced') {
+                            const detailsDiv = document.getElementById(`details-${checkbox.id}`);
+                            detailsDiv.classList.toggle('hidden', !checkbox.checked);
+                        }
+                    });
+                });
+
+                DOMElements.receptorsGroup.querySelectorAll('.receptor-details .toggle-switch button').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                         e.preventDefault();
+                         const parent = e.target.parentElement;
+                         parent.querySelector('.active').classList.remove('active');
+                         e.target.classList.add('active');
+                    });
+                });
+            };
+
+            const resetCard = () => {
+                DOMElements.quizForm.reset();
+                if (state.isFlipped) flipCard();
+                DOMElements.feedbackSection.innerHTML = '';
+                DOMElements.explanation.classList.add('hidden');
+                DOMElements.indirectMechContainer.classList.add('hidden');
+                
+                document.querySelectorAll('.choice-input').forEach(input => input.checked = false);
+                
                 if (state.mode === 'advanced') {
                     document.querySelectorAll('.receptor-details').forEach(el => el.classList.add('hidden'));
                 }
@@ -722,17 +818,21 @@
 
             const displayReviewAnswer = (drug) => {
                 DOMElements.feedbackSection.innerHTML = '';
-                const createRow = (label, value) => `<div class="feedback-row"><div class="label" style="font-weight: 600;">${label}</div><div class="value">${value}</div></div>`;
+                const createRow = (label, value) => `<div class="feedback-row" style="background: none;"><div class="label" style="font-weight: 600;">${label}</div><div class="value">${value || 'N/A'}</div></div>`;
                 
                 let receptorText = drug.receptors.join(', ') || 'None';
-                if (state.mode === 'advanced' && Object.keys(drug.receptorMap).length > 0) {
+                if (Object.keys(drug.receptorMap).length > 0) {
                      receptorText = Object.keys(drug.receptorMap).join(', ');
                 }
 
                 DOMElements.feedbackSection.insertAdjacentHTML('beforeend', createRow('Pathway', drug.tone));
                 DOMElements.feedbackSection.insertAdjacentHTML('beforeend', createRow('Action Path', drug.actionPaths.join(', ')));
                 DOMElements.feedbackSection.insertAdjacentHTML('beforeend', createRow('Agonism', drug.agonism));
-                DOMElements.feedbackSection.insertAdjacentHTML('beforeend', createRow('Net Tilt', calculateTilt(drug).replace('fight', 'Fight-or-Flight').replace('rest', 'Rest-and-Digest')));
+                
+                const tilt = calculateTilt(drug);
+                const tiltText = tilt === 'variable' ? 'Variable' : (tilt === 'fight' ? 'Fight-or-Flight' : 'Rest-and-Digest');
+                DOMElements.feedbackSection.insertAdjacentHTML('beforeend', createRow('Net Tilt', tiltText));
+
                 if (drug.indirectMechanisms.length > 0) {
                     DOMElements.feedbackSection.insertAdjacentHTML('beforeend', createRow('Mechanisms', drug.indirectMechanisms.join(', ')));
                 }
@@ -742,9 +842,33 @@
 
             const loadNewCard = () => {
                 if (state.questionBank.length === 0) {
-                    if (state.masteredBank.length > 0) {
-// ... existing code ... -->
+                     if(state.mode === 'review'){
+                        // Restart review mode from the beginning
+                        state.questionBank = [...masterDrugList];
+                        shuffleArray(state.questionBank);
+                    } else if (state.masteredBank.length > 0) {
+                        // All quiz questions answered correctly, cycle them back in
+                        state.questionBank = [...state.masteredBank];
+                        state.masteredBank = [];
+                        shuffleArray(state.questionBank);
+                    } else {
+                        // This case should ideally not be hit if masterDrugList is not empty
+                        DOMElements.drugNameFront.textContent = "Quiz Complete!";
+                        DOMElements.quizForm.classList.add('hidden');
+                        return;
+                    }
+                }
+                
+                updateUIVisibility();
                 state.currentDrug = state.questionBank[0]; // Always take the next question from the front
+                if(state.mode !== 'review') {
+                    // For quiz modes, shift the card so it gets evaluated
+                    state.currentDrug = state.questionBank[0];
+                } else {
+                    // For review mode, just show the next card without removing it until 'next' is clicked
+                    state.currentDrug = state.questionBank[0];
+                }
+
                 resetCard();
                 DOMElements.drugNameFront.textContent = state.currentDrug.name;
                 DOMElements.drugNameBack.textContent = state.currentDrug.name;
@@ -755,21 +879,169 @@
                     DOMElements.explanation.classList.remove('hidden');
                 }
                 
-                updateUIVisibility();
                 updateScoreboard();
             };
 
             const gradeAnswer = () => {
-// ... existing code ... -->
-            DOMElements.nextBtn.addEventListener('click', loadNewCard);
+                const drug = state.currentDrug;
+                const formData = new FormData(DOMElements.quizForm);
+                const results = { isFullyCorrect: true, feedback: {} };
+                
+                const userPathway = formData.get('pathway');
+                results.feedback.pathway = { correct: userPathway === drug.tone, user: userPathway || 'None', answer: drug.tone };
+                if (!results.feedback.pathway.correct) results.isFullyCorrect = false;
+
+                const userAgonism = formData.get('agonism');
+                results.feedback.agonism = { correct: userAgonism === drug.agonism, user: userAgonism || 'None', answer: drug.agonism };
+                if (!results.feedback.agonism.correct) results.isFullyCorrect = false;
+                
+                const userTilt = formData.get('tilt');
+                const correctTilt = calculateTilt(drug);
+                
+                const tiltMap = { fight: 'Fight-or-Flight', rest: 'Rest-and-Digest', variable: 'Variable' };
+                results.feedback.tilt = { correct: userTilt === correctTilt, user: userTilt ? tiltMap[userTilt] : 'None', answer: tiltMap[correctTilt] };
+                if (!results.feedback.tilt.correct) results.isFullyCorrect = false;
+                
+                const userActionPaths = formData.getAll('actionPath');
+                results.feedback.actionPath = { correct: arrayEquals(userActionPaths.sort(), drug.actionPaths.sort()), user: userActionPaths.length > 0 ? userActionPaths.join(', ') : 'None', answer: drug.actionPaths.join(', ') };
+                if (!results.feedback.actionPath.correct) results.isFullyCorrect = false;
+
+                const userMechanisms = formData.getAll('indirectMechanism');
+                const requiresMechanisms = drug.actionPaths.includes('indirect');
+                let mechanismsCorrect = false;
+                if (requiresMechanisms) {
+                    mechanismsCorrect = arrayEquals(userMechanisms.sort(), drug.indirectMechanisms.sort());
+                } else {
+                    mechanismsCorrect = userMechanisms.length === 0;
+                }
+                results.feedback.mechanisms = { correct: mechanismsCorrect, user: userMechanisms.length > 0 ? userMechanisms.join(', ') : 'None', answer: drug.indirectMechanisms.length > 0 ? drug.indirectMechanisms.join(', ') : 'None' };
+                if (!results.feedback.mechanisms.correct) results.isFullyCorrect = false;
+
+                const userReceptors = formData.getAll('receptor');
+                const correctReceptors = state.mode === 'minimal' ? drug.receptors : Object.keys(drug.receptorMap);
+                const incorrectSelections = userReceptors.filter(r => !correctReceptors.includes(r));
+                const missedSelections = correctReceptors.filter(r => !userReceptors.includes(r));
+                let receptorsCorrect = incorrectSelections.length === 0 && missedSelections.length === 0;
+                results.feedback.receptors = { correct: receptorsCorrect, correctChips: userReceptors.filter(r => correctReceptors.includes(r)), incorrectChips: incorrectSelections, missedChips: missedSelections, advancedFeedback: {} };
+
+                if (state.mode === 'advanced') {
+                    let allAdvancedCorrect = true;
+                    if (correctReceptors.length > 0) { // Only grade if there are receptors to grade
+                        for (const receptor of correctReceptors) {
+                             if (!userReceptors.includes(receptor)) {
+                                allAdvancedCorrect = false; continue;
+                             }
+                            const answer = drug.receptorMap[receptor];
+                            const detailsDiv = document.getElementById(`details-receptor-${receptor.replace('-','')}`);
+                            const userMode = detailsDiv.querySelector('.toggle-switch .active').dataset.value;
+                            let modeCorrect = (answer.mode === 'both') || (userMode === answer.mode);
+                            if (!modeCorrect) allAdvancedCorrect = false;
+                            results.feedback.receptors.advancedFeedback[receptor] = { correct: modeCorrect, user: userMode, answer: answer.mode };
+                        }
+                    } else if (userReceptors.length > 0) { // User selected receptors when none were correct
+                         allAdvancedCorrect = false;
+                    }
+
+                    if (!allAdvancedCorrect) receptorsCorrect = false;
+                    results.feedback.receptors.correct = receptorsCorrect;
+                }
+
+                if (!receptorsCorrect) results.isFullyCorrect = false;
+                
+                return results;
+            };
+
+            const displayFeedback = (results) => {
+                DOMElements.feedbackSection.innerHTML = '';
+                const createRow = (label, value, isCorrect) => `<div class="feedback-row ${isCorrect ? 'correct' : 'incorrect'}"><div class="label">${label}</div><div class="value">${value}</div></div>`;
+                const createChip = (text, type) => `<div class="chip ${type}">${text}</div>`;
+
+                DOMElements.feedbackSection.insertAdjacentHTML('beforeend', createRow('Pathway', results.feedback.pathway.user, results.feedback.pathway.correct));
+                DOMElements.feedbackSection.insertAdjacentHTML('beforeend', createRow('Action Path', results.feedback.actionPath.user, results.feedback.actionPath.correct));
+                DOMElements.feedbackSection.insertAdjacentHTML('beforeend', createRow('Agonism', results.feedback.agonism.user, results.feedback.agonism.correct));
+                DOMElements.feedbackSection.insertAdjacentHTML('beforeend', createRow('Net Tilt', results.feedback.tilt.user, results.feedback.tilt.correct));
+                
+                if (state.currentDrug.actionPaths.includes('indirect') || results.feedback.mechanisms.user !== 'None') {
+                     DOMElements.feedbackSection.insertAdjacentHTML('beforeend', createRow('Mechanisms', results.feedback.mechanisms.user, results.feedback.mechanisms.correct));
+                }
+                
+                const receptorFb = results.feedback.receptors;
+                let receptorChipsHTML = receptorFb.correctChips.map(r => createChip(r, 'correct')).join('');
+                receptorChipsHTML += receptorFb.incorrectChips.map(r => createChip(r, 'incorrect')).join('');
+                receptorChipsHTML += receptorFb.missedChips.map(r => createChip(r, 'missed')).join('');
+                const correctReceptorsString = (state.mode === 'minimal' ? state.currentDrug.receptors : Object.keys(state.currentDrug.receptorMap)).join(', ');
+                if (receptorFb.missedChips.length > 0 || receptorFb.incorrectChips.length > 0) {
+                     receptorChipsHTML += `<div style="width: 100%; font-size: 0.8rem; margin-top: 0.5rem;"><strong>Correct Answer:</strong> ${ correctReceptorsString || 'None' }</div>`;
+                }
+                
+                DOMElements.feedbackSection.insertAdjacentHTML('beforeend', createRow('Receptors', `<div class="feedback-chips">${receptorChipsHTML || 'None'}</div>`, receptorFb.correct));
+
+                if(state.session === 'study' || !results.isFullyCorrect) {
+                    DOMElements.explanation.classList.remove('hidden');
+                }
+            };
+            
+            const showTestResults = () => {
+                DOMElements.testResultsContent.innerHTML = state.missedInTest
+                    .map(item => `<div><strong>${item.name}:</strong> ${item.explanation}</div>`)
+                    .join('<hr style="margin: 0.5rem 0; border-color: var(--border-color);">');
+                DOMElements.testResultsModal.classList.add('visible');
+            };
+
+            // --- EVENT HANDLERS --- //
+
+            DOMElements.quizForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                if (state.isFlipped) return;
+
+                const results = gradeAnswer();
+                const answeredDrug = state.questionBank.shift(); // Remove drug from front of queue
+
+                if (results.isFullyCorrect) {
+                    state.masteredBank.push(answeredDrug);
+                } else {
+                    state.questionBank.push(answeredDrug); // Add to back of queue if incorrect
+                    if (state.session === 'test' && !state.missedInTest.some(d => d.name === answeredDrug.name)) {
+                         state.missedInTest.push({ name: answeredDrug.name, explanation: answeredDrug.explanation });
+                    }
+                }
+                
+                state.testCycleCount++;
+                updateScoreboard();
+                displayFeedback(results);
+                flipCard();
+
+                if (state.session === 'test' && state.testCycleCount >= 10 && state.missedInTest.length > 0) {
+                    setTimeout(showTestResults, 800);
+                }
+            });
+            
+             DOMElements.nextBtn.addEventListener('click', () => {
+                if (state.mode === 'review') {
+                    state.questionBank.shift(); // Move to the next card in review mode
+                }
+                loadNewCard();
+            });
+
             DOMElements.backBtn.addEventListener('click', flipCard);
             DOMElements.resetBtn.addEventListener('click', () => DOMElements.quizForm.reset());
             DOMElements.showAnswerBtn.addEventListener('click', flipCard);
 
+
             DOMElements.quizForm.querySelector('#action-indirect').addEventListener('change', (e) => {
                 DOMElements.indirectMechContainer.classList.toggle('hidden', !e.target.checked);
             });
-// ... existing code ... -->
+
+            const setupToggle = (toggleEl, stateKey, callback) => {
+                toggleEl.addEventListener('click', (e) => {
+                    if (e.target.tagName === 'BUTTON') {
+                        if(e.target.classList.contains('active')) return;
+                        toggleEl.querySelector('.active').classList.remove('active');
+                        e.target.classList.add('active');
+                        state[stateKey] = e.target.dataset[stateKey];
+                        if (callback) callback();
+                    }
+                });
             };
             setupToggle(DOMElements.modeToggle, 'mode', initializeQuiz);
             setupToggle(DOMElements.sessionToggle, 'session', initializeQuiz);
@@ -789,5 +1061,52 @@
             DOMElements.closeResultsBtn.addEventListener('click', () => {
                 DOMElements.testResultsModal.classList.remove('visible');
                 state.testCycleCount = 0;
-// ... existing code ... -->
+                state.missedInTest = [];
+            });
+
+            window.addEventListener('keydown', (e) => {
+                if (DOMElements.modeChooserModal.classList.contains('visible') || DOMElements.testResultsModal.classList.contains('visible')) return;
+                
+                if (e.key === 'Enter' && !state.isFlipped && state.mode !== 'review') {
+                    DOMElements.submitBtn.click();
+                } else if (e.key === 'Enter' && !state.isFlipped && state.mode === 'review') {
+                    DOMElements.showAnswerBtn.click();
+                }
+                
+                if (e.key.toLowerCase() === 'n' && state.isFlipped) DOMElements.nextBtn.click();
+
+                if (e.key.toLowerCase() === 'r' && !state.isFlipped && state.mode !== 'review') {
+                    DOMElements.resetBtn.click();
+                }
+                
+                const clickElement = (selector) => {
+                    const el = DOMElements.quizForm.querySelector(selector);
+                    if(el) el.checked = !el.checked;
+                };
+
+                if (!state.isFlipped && state.mode !== 'review') {
+                    switch(e.key) {
+                        case '1': clickElement('#path-symp'); break;
+                        case '2': clickElement('#path-para'); break;
+                        case '3': clickElement('#path-gang'); break;
+                        case '5': clickElement('#agonism-agonist'); break;
+                        case '6': clickElement('#agonism-antagonist'); break;
+                        case 'f': clickElement('#tilt-fight'); break;
+                        case 'd': clickElement('#tilt-rest'); break;
+                        case 'v': clickElement('#tilt-variable'); break;
+                    }
+                }
+            });
+
+            // --- INITIALIZATION --- //
+            const init = () => {
+                populateReceptors();
+                // Don't load card until mode is chosen
+            };
+
+            init();
+        });
+    </script>
+</body>
+</html>
 
